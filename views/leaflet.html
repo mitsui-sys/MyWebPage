@@ -1,31 +1,93 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>GSI Tiles on Leaflet</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css"
-  integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
-  crossorigin=""/>
-<script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"
-  integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew=="
-  crossorigin=""></script>
-
-<style>
-  body {padding: 0; margin: 0}
-  html, body, #map {height: 100%; width: 100%;}
-</style>
+    <meta charset="UTF-8">
+    <title>簡易WebGIS 地番・航空写真管理</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 80vh; width: 100%; }
+        #controls { padding: 10px; background: #f4f4f4; }
+    </style>
 </head>
-
 <body>
-<div id="map"></div>
-<script>
-var map = L.map('map');
 
-L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
-  attribution: "<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>"
-}).addTo(map);
+    <h2>🗺️ 簡易WebGISシステム</h2>
+    <div id="controls">
+        <input type="text" id="address" placeholder="地番・住所">
+        <input type="text" id="desc" placeholder="備考">
+        <button onclick="saveLocation()">現在中心地を登録</button>
+    </div>
+    <div id="map"></div>
 
-map.setView([35.3622222, 138.7313889], 5);
-</script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+    <script>
+        // 1. Supabaseの初期化 (ご自身のプロジェクトのURLとAnon Keyに書き換えてください)
+        const SUPABASE_URL = 'https://your-project-id.supabase.co';
+        const SUPABASE_KEY = 'your-anon-key';
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 2. マップの初期化（大阪の京橋駅付近を初期位置に設定）
+        const map = L.map('map').setView([34.6962, 135.5336], 15);
+
+        // 3. ベースマップ（地理院地図）の準備
+        const standardMap = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
+        });
+
+        const satelliteMap = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg', {
+            attribution: '&copy; <a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
+        });
+
+        // デフォルトで標準地図を表示
+        standardMap.addTo(map);
+
+        // レイヤー切り替えコントロールの追加（これで航空写真と地番図的な標準地図を切り替え）
+        const baseMaps = {
+            "標準地図": standardMap,
+            "写真（航空写真）": satelliteMap
+        };
+        L.control.layers(baseMaps).addTo(map);
+
+        // 4. DBから登録済み地番データを読み込んでピンを立てる
+        async function loadMarkers() {
+            const { data, error } = await supabase.from('chiban_data').select('*');
+            if (error) console.error(error);
+            
+            data.forEach(item => {
+                L.marker([item.latitude, item.longitude])
+                 .addTo(map)
+                 .bindPopup(`<b>${item.address}</b><br>${item.description}`);
+            });
+        }
+
+        // 5. 地図の中心座標をDBに保存する関数
+        async function saveLocation() {
+            const center = map.getCenter();
+            const address = document.getElementById('address').value;
+            const desc = document.getElementById('desc').value;
+
+            if (!address) {
+                alert("地番・住所を入力してください");
+                return;
+            }
+
+            const { data, error } = await supabase.from('chiban_data').insert([
+                { address: address, latitude: center.lat, longitude: center.lng, description: desc }
+            ]);
+
+            if (error) {
+                alert("保存に失敗しました");
+                console.error(error);
+            } else {
+                alert("座標を登録しました！");
+                L.marker([center.lat, center.lng]).addTo(map).bindPopup(`<b>${address}</b><br>${desc}`);
+            }
+        }
+
+        // 初回読み込み
+        loadMarkers();
+    </script>
 </body>
 </html>
